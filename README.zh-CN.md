@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.0%2B-blue)](https://www.tampermonkey.net/)
 
-一个用于 GitHub 的油猴脚本：通过国内加速镜像代理下载流量，**账号和登录态完全不变，只换传输通道**。
+**简体中文** · [English](https://github.com/XIEHUANGMOU/github-mirror-accelerator/blob/main/README.md)
 
-[English](README.md)
+一个用于 GitHub 的油猴脚本：通过国内加速镜像代理下载流量，**账号和登录态完全不变，只换传输通道**。
 
 ## 为什么需要它
 
@@ -36,8 +36,8 @@
 ## 安装
 
 1. 浏览器装 [Tampermonkey](https://www.tampermonkey.net/)（篡改猴）
-2. 打开 [src/github-mirror.user.js](src/github-mirror.user.js)，点「Raw」
-3. 篡改猴会弹出安装页，点「安装」
+2. 点 **[安装脚本](https://github.com/XIEHUANGMOU/github-mirror-accelerator/raw/main/src/github-mirror.user.js)** —— 篡改猴会拦截 `.user.js` 并弹出安装页
+3. 确认安装
 
 或者：把 `.user.js` 文件直接拖进浏览器窗口。
 

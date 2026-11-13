@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.0%2B-blue)](https://www.tampermonkey.net/)
 
-A userscript that proxies GitHub download traffic through acceleration mirrors. **Your account and session stay untouched — only the transport path changes.**
+**English** · [简体中文](https://github.com/XIEHUANGMOU/github-mirror-accelerator/blob/main/README.zh-CN.md)
 
-[中文文档](README.zh-CN.md)
+A userscript that proxies GitHub download traffic through acceleration mirrors. **Your account and session stay untouched — only the transport path changes.**
 
 ## Why
 
@@ -36,10 +36,10 @@ This script does three things:
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser
-2. Open [src/github-mirror.user.js](src/github-mirror.user.js) and click "Raw"
-3. Tampermonkey shows an install page — click "Install"
+2. Click **[Install userscript](https://github.com/XIEHUANGMOU/github-mirror-accelerator/raw/main/src/github-mirror.user.js)** — Tampermonkey catches the `.user.js` and shows its install page
+3. Confirm the install
 
-Or: drag the `.user.js` file directly into your browser window.
+Or drag the `.user.js` file straight into your browser window.
 
 ## Usage
 
