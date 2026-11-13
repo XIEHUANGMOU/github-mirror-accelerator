@@ -1,9 +1,11 @@
 // ==UserScript==
-// @name         GitHub 国内镜像加速 · 增强版
-// @namespace    https://github.com/hbf/github-mirror
-// @version      3.0.0
-// @description  多镜像自动故障转移 + 断点测速 + 简约调试面板。账号登录态不变，只换传输通道。所有镜像均经实测验证。
-// @author       hbf
+// @name         GitHub Mirror Accelerator
+// @name:zh-CN   GitHub 国内镜像加速
+// @namespace    https://github.com/XIEHUANGMOU/github-mirror-accelerator
+// @version      4.0.0
+// @description  Multi-mirror auto-failover with a minimal debug panel. Keeps your account and session untouched — only the transport path changes. All mirrors verified by live testing.
+// @description:zh-CN  多镜像自动故障转移 + 简约调试面板。账号登录态不变，只换传输通道。所有镜像均经实测验证。
+// @author       XIEHUANGMOU
 // @match        https://github.com/*
 // @match        https://gist.github.com/*
 // @match        https://raw.githubusercontent.com/*
@@ -32,33 +34,141 @@
   'use strict';
 
   // ===========================================================================
+  // i18n —— 自动跟随浏览器语言，可用 CFG.lang 强制指定
+  // ===========================================================================
+  const STRINGS = {
+    en: {
+      panelTitle: 'GitHub Mirror',
+      mirrors: 'MIRRORS · CLICK TO PIN',
+      auto: 'Auto (fastest)',
+      probe: 'Probe',
+      probing: 'Probing',
+      toggleOn: 'On',
+      toggleOff: 'Off',
+      clone: 'Clone',
+      untested: 'n/a',
+      failed: 'fail',
+      statHealthy: 'OK',
+      statHits: 'Hits',
+      statSwitches: 'Switches',
+      noLogs: 'No activity yet',
+      copy: 'Copy',
+      copied: 'Copied',
+      copiedClone: 'Clone command copied',
+      notRepoPage: 'Not a repository page',
+      enabledToast: 'Mirror acceleration ON',
+      disabledToast: 'Mirror acceleration OFF',
+      autoToast: 'Switched to auto (fastest)',
+      pinnedToast: 'Pinned to {name}',
+      collapse: 'Collapse',
+      skipPrivate: 'Skipped: private repository',
+      timeout: 'timeout',
+      badContent: 'bad content (not a file)',
+      connFailed: 'connection failed',
+      xhrError: 'xhr error',
+      probeLog: 'Probe {name}: {result}',
+      preparing: 'Preparing {n} mirror candidates',
+      trying: 'Trying [{i}/{n}] {host}',
+      redirected: 'Redirected to {host}',
+      preflightFail: 'preflight check failed',
+      mirrorDown: 'Mirror unavailable, switching',
+      allDown: 'All mirrors down, falling back to direct',
+      allDownToast: 'All mirrors down — using direct connection',
+    },
+    zh: {
+      panelTitle: 'GitHub 镜像',
+      mirrors: '镜像源 · 点击固定',
+      auto: '自动选优',
+      probe: '探活',
+      probing: '探活中',
+      toggleOn: '已开',
+      toggleOff: '已关',
+      clone: '克隆',
+      untested: '未测',
+      failed: '失败',
+      statHealthy: '健康',
+      statHits: '命中',
+      statSwitches: '切换',
+      noLogs: '暂无日志',
+      copy: '复制',
+      copied: '已复制',
+      copiedClone: '已复制克隆命令',
+      notRepoPage: '当前页不是仓库首页',
+      enabledToast: '已启用镜像加速',
+      disabledToast: '已关闭镜像加速',
+      autoToast: '切到自动选优',
+      pinnedToast: '固定 {name}',
+      collapse: '收起',
+      skipPrivate: '跳过: 私有仓库不代理',
+      timeout: '超时',
+      badContent: '内容异常(非文件)',
+      connFailed: '连接失败',
+      xhrError: 'GM_xhr 异常',
+      probeLog: '探活 {name}: {result}',
+      preparing: '准备跳转，候选 {n} 个镜像',
+      trying: '尝试 [{i}/{n}] {host}',
+      redirected: '跳转成功 -> {host}',
+      preflightFail: '跳转前探测失败',
+      mirrorDown: '镜像不可用，切换下一个',
+      allDown: '所有镜像均不可用，回落直连',
+      allDownToast: '镜像全部不可用，走直连',
+    },
+  };
+
+  const DEFAULT_LANG = 'en';
+
+  function detectLang() {
+    try {
+      const nav = (navigator.language || navigator.userLanguage || '').toLowerCase();
+      if (nav.startsWith('zh')) return 'zh';
+      return DEFAULT_LANG;
+    } catch (e) { return DEFAULT_LANG; }
+  }
+
+  let LANG = DEFAULT_LANG;
+
+  /** 取字符串并做 {name} 占位替换 */
+  function t(key, vars) {
+    const table = STRINGS[LANG] || STRINGS[DEFAULT_LANG];
+    let s = table[key];
+    if (s === undefined) s = STRINGS[DEFAULT_LANG][key];
+    if (s === undefined) return key;
+    if (vars) {
+      for (const k of Object.keys(vars)) {
+        s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), String(vars[k]));
+      }
+    }
+    return s;
+  }
+
+  // ===========================================================================
   // 镜像表 —— 全部经实测验证，2026-11 采集
   // 状态标记来自真实 curl 探测，不是猜的
   // ===========================================================================
   const MIRRORS = [
     // 实测 1.4s，raw + release 双通
-    { host: 'https://ghfast.top',    label: 'ghfast',  pri: 1, note: '实测最快' },
+    { host: 'https://ghfast.top',    label: 'ghfast',  pri: 1, note: 'fastest measured' },
     // 实测 2.3s，release 206 流式正常
-    { host: 'https://gh-proxy.com',  label: 'gh-proxy', pri: 2, note: '稳定' },
+    { host: 'https://gh-proxy.com',  label: 'gh-proxy', pri: 2, note: 'stable' },
     // 实测 1.3s(裸连) / 3.0s(release)
-    { host: 'https://gh.nxnow.top',  label: 'nxnow',   pri: 3, note: '新源' },
+    { host: 'https://gh.nxnow.top',  label: 'nxnow',   pri: 3, note: 'new source' },
     // 实测 6.5s，慢但可用
-    { host: 'https://ghproxy.net',   label: 'ghproxy', pri: 4, note: '慢速备胎' },
+    { host: 'https://ghproxy.net',   label: 'ghproxy', pri: 4, note: 'slow fallback' },
   ];
 
   // 已确认死亡/不可用的源，留作记录避免再被加回来
   const DEAD_MIRRORS = [
-    { host: 'https://gh.con.sh',     reason: '已停服: Suspent due to abuse report' },
-    { host: 'https://ghproxy.cfd',   reason: '返回 HTML 落地页而非文件' },
-    { host: 'https://gh.llkk.cc',    reason: '超时 20s+' },
-    { host: 'https://github.moeyy.xyz', reason: 'SSL 失败' },
-    { host: 'https://ghproxy.cc',    reason: 'SSL 失败' },
-    { host: 'https://hub.gitmirror.com', reason: 'SSL 失败' },
-    { host: 'https://ghp.ci',        reason: 'SSL 失败' },
-    { host: 'https://gh.ddlc.top',   reason: '429 限流' },
-    { host: 'https://ghproxy.homeboyc.cn', reason: '403 禁止' },
-    { host: 'https://mrepo.org',     reason: '403 禁止' },
-    { host: 'https://gh-proxy.cn',   reason: '503 服务不可用' },
+    { host: 'https://gh.con.sh',     reason: 'shut down: abuse report' },
+    { host: 'https://ghproxy.cfd',   reason: 'returns HTML landing page, not files' },
+    { host: 'https://gh.llkk.cc',    reason: 'timeout 20s+' },
+    { host: 'https://github.moeyy.xyz', reason: 'SSL failure' },
+    { host: 'https://ghproxy.cc',    reason: 'SSL failure' },
+    { host: 'https://hub.gitmirror.com', reason: 'SSL failure' },
+    { host: 'https://ghp.ci',        reason: 'SSL failure' },
+    { host: 'https://gh.ddlc.top',   reason: '429 rate limited' },
+    { host: 'https://ghproxy.homeboyc.cn', reason: '403 forbidden' },
+    { host: 'https://mrepo.org',     reason: '403 forbidden' },
+    { host: 'https://gh-proxy.cn',   reason: '503 unavailable' },
     { host: 'https://gh.xmly.dev',   reason: '530 Cloudflare' },
   ];
 
@@ -74,6 +184,7 @@
     showPanel: true,
     autoFailover: true,
     skipPrivate: true,
+    lang: '',                // '' = 自动跟随浏览器 / 'en' / 'zh'
     pinned: '',              // 空 = 自动选优
     health: {},              // host -> {ms, ok, ts, verified}
     stats: { hits: 0, fails: 0, failovers: 0 },
@@ -81,6 +192,9 @@
   };
 
   const CFG = Object.assign({}, DEFAULT_CFG, loadCfg());
+
+  // 语言确定：显式配置优先，否则跟随浏览器
+  LANG = CFG.lang && STRINGS[CFG.lang] ? CFG.lang : detectLang();
 
   function loadCfg() {
     try {
@@ -147,7 +261,7 @@
     const rule = matchRule(url);
     if (!rule) return false;
     if (CFG.skipPrivate && isPrivateRepo()) {
-      logInfo('跳过: 私有仓库不代理', url);
+      logInfo(t('skipPrivate'), url);
       return false;
     }
     if (RAW_TYPES.has(rule.name) && !CFG.rewriteRaw) return false;
@@ -207,7 +321,7 @@
         CFG.health[host] = { ms: ok ? ms : -1, ok, ts: Date.now(), reason: reason || '' };
         resolve({ host, ok, ms, reason });
       };
-      const timer = setTimeout(() => done(false, '超时'), PROBE_TIMEOUT);
+      const timer = setTimeout(() => done(false, t('timeout')), PROBE_TIMEOUT);
 
       try {
         GM_xmlhttpRequest({
@@ -219,15 +333,15 @@
             const body = String(res.responseText || '');
             if (res.status < 200 || res.status >= 400) return done(false, `HTTP ${res.status}`);
             // 关键: 内容校验。镜像返回 HTML 落地页时必须判定为失败
-            if (!/Hello World/.test(body)) return done(false, '内容异常(非文件)');
+            if (!/Hello World/.test(body)) return done(false, t('badContent'));
             done(true, '');
           },
-          onerror: () => { clearTimeout(timer); done(false, '连接失败'); },
-          ontimeout: () => { clearTimeout(timer); done(false, '超时'); },
+          onerror: () => { clearTimeout(timer); done(false, t('connFailed')); },
+          ontimeout: () => { clearTimeout(timer); done(false, t('timeout')); },
         });
       } catch (e) {
         clearTimeout(timer);
-        done(false, 'GM_xhr 异常');
+        done(false, t('xhrError'));
       }
     });
   }
@@ -240,7 +354,7 @@
       for (const m of MIRRORS) {
         if (onTick) onTick(m.host, 'probing');
         const r = await probeOne(m.host);
-        logInfo(`探活 ${m.label}: ${r.ok ? r.ms + 'ms' : '失败(' + r.reason + ')'}`);
+        logInfo(t('probeLog', { name: m.label, result: r.ok ? r.ms + 'ms' : t('failed') + ' (' + r.reason + ')' }));
         if (onTick) onTick(m.host, r.ok ? 'ok' : 'fail');
       }
       saveCfg();
@@ -270,32 +384,32 @@
    */
   async function navigateWithFailover(originalUrl) {
     const targets = buildTargetList(originalUrl);
-    logInfo(`准备跳转，候选 ${targets.length} 个镜像`);
+    logInfo(t('preparing', { n: targets.length }));
 
     for (let i = 0; i < targets.length; i++) {
       const cand = targets[i];
-      logInfo(`尝试 [${i + 1}/${targets.length}] ${cand.host}`);
+      logInfo(t('trying', { i: i + 1, n: targets.length, host: cand.host }));
 
       const reachable = await quickCheck(cand.url);
       if (reachable) {
         CFG.stats.hits++;
         saveCfg();
-        logInfo(`跳转成功 -> ${cand.host}`);
+        logInfo(t('redirected', { host: cand.host }));
         location.assign(cand.url);
         return;
       }
 
       CFG.stats.fails++;
       if (i > 0) CFG.stats.failovers++;
-      CFG.health[cand.host] = { ms: -1, ok: false, ts: Date.now(), reason: '跳转前探测失败' };
-      logWarn(`镜像不可用，切换下一个`, cand.host);
+      CFG.health[cand.host] = { ms: -1, ok: false, ts: Date.now(), reason: t('preflightFail') };
+      logWarn(t('mirrorDown'), cand.host);
       saveCfg();
       renderPanel();
     }
 
     // 全部失败，回落到直连
-    logErr('所有镜像均不可用，回落直连');
-    toast('镜像全部不可用，走直连');
+    logErr(t('allDown'));
+    toast(t('allDownToast'));
     location.assign(originalUrl);
   }
 
@@ -445,18 +559,18 @@
     panelEl.innerHTML = `
       <div class="hd">
         <i class="dot"></i>
-        <span class="ttl">GitHub 镜像</span>
-        <span class="x" title="收起">—</span>
+        <span class="ttl">${t('panelTitle')}</span>
+        <span class="x" title="${t('collapse')}">—</span>
       </div>
       <div class="bd">
         <div class="sec">
-          <div class="lbl">镜像源 · 点击固定</div>
+          <div class="lbl">${t('mirrors')}</div>
           <div id="ghm-list"></div>
         </div>
         <div class="btns">
-          <button id="ghm-probe">探活</button>
-          <button id="ghm-toggle">开关</button>
-          <button id="ghm-clone">克隆</button>
+          <button id="ghm-probe">${t('probe')}</button>
+          <button id="ghm-toggle">${t(CFG.enabled ? 'toggleOn' : 'toggleOff')}</button>
+          <button id="ghm-clone">${t('clone')}</button>
         </div>
         <div class="stat" id="ghm-stat"></div>
         <div class="logzone" id="ghm-log"></div>
@@ -472,32 +586,32 @@
     panelEl.querySelector('#ghm-probe').addEventListener('click', async () => {
       const btn = panelEl.querySelector('#ghm-probe');
       btn.disabled = true;
-      btn.textContent = '探活中';
+      btn.textContent = t('probing');
       await probeAll((host, st) => {
         const row = panelEl.querySelector(`[data-host="${host}"]`);
         if (row) {
           const dot = panelEl.querySelector('.dot');
           dot.classList.toggle('busy', st === 'probing');
           const ms = row.querySelector('.ms');
-          if (ms) ms.textContent = st === 'probing' ? '…' : st === 'ok' ? ((CFG.health[host] || {}).ms + 'ms') : '失败';
+          if (ms) ms.textContent = st === 'probing' ? '…' : st === 'ok' ? ((CFG.health[host] || {}).ms + 'ms') : t('failed');
         }
       });
       btn.disabled = false;
-      btn.textContent = '探活';
+      btn.textContent = t('probe');
     });
 
     panelEl.querySelector('#ghm-toggle').addEventListener('click', () => {
       CFG.enabled = !CFG.enabled;
       saveCfg();
       renderPanel();
-      toast(CFG.enabled ? '已启用镜像加速' : '已关闭镜像加速');
+      toast(t(CFG.enabled ? 'enabledToast' : 'disabledToast'));
     });
 
     panelEl.querySelector('#ghm-clone').addEventListener('click', () => {
       const cmd = buildCloneCommand();
-      if (!cmd) { toast('当前页不是仓库首页', true); return; }
+      if (!cmd) { toast(t('notRepoPage'), true); return; }
       copyText(cmd);
-      toast('已复制克隆命令');
+      toast(t('copiedClone'));
     });
 
     makeDraggable(panelEl);
@@ -540,9 +654,9 @@
 
     const auto = document.createElement('div');
     auto.className = 'mrow' + (CFG.pinned ? '' : ' on');
-    auto.innerHTML = `<span class="n">自动选优</span><span class="ms">${rankedMirrors()[0].label}</span>`;
+    auto.innerHTML = `<span class="n">${t('auto')}</span><span class="ms">${rankedMirrors()[0].label}</span>`;
     auto.addEventListener('click', () => {
-      CFG.pinned = ''; saveCfg(); renderPanel(); toast('切到自动选优');
+      CFG.pinned = ''; saveCfg(); renderPanel(); toast(t('autoToast'));
     });
     list.appendChild(auto);
 
@@ -551,20 +665,20 @@
       const row = document.createElement('div');
       row.className = 'mrow' + (CFG.pinned === m.host ? ' on' : '');
       row.dataset.host = m.host;
-      let msTxt = '未测';
-      if (h) msTxt = h.ok ? h.ms + 'ms' : '失败';
+      let msTxt = t('untested');
+      if (h) msTxt = h.ok ? h.ms + 'ms' : t('failed');
       row.innerHTML = `<span class="n">${m.label}</span><span class="ms">${msTxt}</span>`;
       row.title = m.note;
       row.addEventListener('click', () => {
         CFG.pinned = CFG.pinned === m.host ? '' : m.host;
         saveCfg(); renderPanel();
-        toast(CFG.pinned ? '固定 ' + m.label : '切到自动选优');
+        toast(CFG.pinned ? t('pinnedToast', { name: m.label }) : t('autoToast'));
       });
       list.appendChild(row);
     }
 
     const tg = el.querySelector('#ghm-toggle');
-    tg.textContent = CFG.enabled ? '已开' : '已关';
+    tg.textContent = t(CFG.enabled ? 'toggleOn' : 'toggleOff');
     tg.className = CFG.enabled ? 'on' : '';
 
     const s = CFG.stats || { hits: 0, fails: 0, failovers: 0 };
@@ -573,9 +687,9 @@
       return h && h.ok && (Date.now() - h.ts < 3600e3);
     }).length;
     el.querySelector('#ghm-stat').innerHTML =
-      `<span>健康 <b>${healthy}/${MIRRORS.length}</b></span>` +
-      `<span>命中 <b>${s.hits}</b></span>` +
-      `<span>切换 <b>${s.failovers}</b></span>`;
+      `<span>${t('statHealthy')} <b>${healthy}/${MIRRORS.length}</b></span>` +
+      `<span>${t('statHits')} <b>${s.hits}</b></span>` +
+      `<span>${t('statSwitches')} <b>${s.failovers}</b></span>`;
 
     renderLog();
     return el;
@@ -588,7 +702,7 @@
     zone.innerHTML = '';
     const items = (CFG.log || []).slice(0, 14);
     if (!items.length) {
-      zone.innerHTML = '<div class="lg"><span class="ms" style="color:#484f58">暂无日志</span></div>';
+      zone.innerHTML = `<div class="lg"><span class="ms" style="color:#484f58">${t('noLogs')}</span></div>`;
       return;
     }
     for (const it of items) {
@@ -647,8 +761,8 @@
     const code = document.createElement('code');
     code.textContent = cmd;
     const btn = document.createElement('button');
-    btn.textContent = '复制';
-    btn.addEventListener('click', () => { copyText(cmd); toast('已复制'); });
+    btn.textContent = t('copy');
+    btn.addEventListener('click', () => { copyText(cmd); toast(t('copied')); });
     box.appendChild(code);
     box.appendChild(btn);
     anchor.prepend(box);
@@ -694,6 +808,21 @@
     (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).__ghm = {
       cfg: CFG, mirrors: MIRRORS, dead: DEAD_MIRRORS,
       probeAll, rankedMirrors, toMirror, renderPanel, saveCfg,
+      /**
+       * 切换界面语言。
+       * @param {'en'|'zh'|'auto'} lang 'auto' 表示跟随浏览器
+       */
+      setLang(lang) {
+        CFG.lang = lang === 'auto' ? '' : (STRINGS[lang] ? lang : '');
+        LANG = CFG.lang || detectLang();
+        saveCfg();
+        if (panelEl) { panelEl.remove(); panelEl = null; }
+        renderPanel();
+        injectCloneHint();
+        return LANG;
+      },
+      getLang() { return LANG; },
+      languages: Object.keys(STRINGS),
     };
   } catch (e) { /* ignore */ }
 })();

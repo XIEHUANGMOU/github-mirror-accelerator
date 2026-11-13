@@ -1,173 +1,213 @@
-# GitHub 镜像加速
+# GitHub Mirror Accelerator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.0%2B-blue)](https://www.tampermonkey.net/)
 
-一个用于 GitHub 的油猴脚本：通过国内加速镜像代理下载流量，**账号和登录态完全不变，只换传输通道**。
+A userscript that proxies GitHub download traffic through acceleration mirrors. **Your account and session stay untouched — only the transport path changes.**
 
-## 为什么需要它
+[中文文档](README.zh-CN.md)
 
-在国内直连 GitHub 下载 release 包、`git clone`、拉 raw 文件，经常几 KB/s 甚至直接超时。镜像站能解决速度问题，但手工切换很麻烦，而且镜像站本身经常挂掉——你永远不知道当前这个还能不能用。
+## Why
 
-这个脚本做三件事：
+Downloading release assets, cloning repos, or fetching raw files from GitHub can be painfully slow or outright broken in some regions. Mirrors fix the speed, but switching between them manually is tedious — and mirrors die all the time. You never know if the one you're using still works.
 
-1. 自动改写下载链接到镜像站
-2. 持续监测每个镜像的健康度，挂了自动换下一个
-3. 给你一个面板，随时看到底哪个能用
+This script does three things:
 
-## 特性
+1. Rewrites download links to go through mirrors
+2. Continuously monitors each mirror's health and switches when one dies
+3. Gives you a panel to see which mirror is actually usable
 
-**自动故障转移** —— 点下载时不直接跳转，而是先用 `Range: bytes=0-1023` 探测目标镜像是否真的可达，可达才跳。不可达就换下一个，全部失败才回落直连。你不会再落到白屏或 404 页。
+## Features
 
-**内容校验** —— 只看状态码不够。实测发现 `ghproxy.cfd` 会返回 200 和一个 49KB 的 HTML 落地页而不是文件，所以探活函数强制校验响应体内容，不匹配判失败。
+**Automatic failover** — When you click a download, the script doesn't redirect immediately. It first probes the target mirror with `Range: bytes=0-1023` to confirm it's actually reachable. If not, it moves to the next candidate. Only when all mirrors fail does it fall back to a direct connection. You'll never hit a blank page or a 404 again.
 
-**健康度排序** —— 每个镜像记录实测延迟和成功状态。健康的按延迟升序排前面，失败的沉底，超过 1 小时的数据视为过期自动重测。
+**Content validation** — Status codes alone aren't enough. Testing revealed `ghproxy.cfd` returns HTTP 200 with a 49KB HTML landing page instead of the file. So the health probe validates response body content and treats mismatches as failures.
 
-**简约调试面板** —— 右下角可拖动面板，实时显示每个镜像的状态、延迟、命中次数、故障切换次数，以及带时间戳的彩色日志流。
+**Health-based ranking** — Each mirror records its measured latency and success state. Healthy mirrors sort by ascending latency; failed ones sink to the bottom. Data older than one hour is considered stale and re-measured.
 
-**登录态零影响** —— 只改写下载类 URL（release 资产、archive 包、raw 文件），页面本身仍走直连。不碰 Cookie，不碰凭据。
+**Minimal debug panel** — A draggable panel in the bottom-right corner showing each mirror's status, latency, hit count, failover count, and a color-coded timestamped log stream.
 
-**私有仓库跳过** —— 检测到当前是私有仓库时自动不代理，因为镜像站拿不到你的 token，代理必然 404。
+**Zero session impact** — Only download-type URLs are rewritten (release assets, archive packages, raw files). Pages themselves still load directly. No cookies touched, no credentials involved.
 
-## 安装
+**Private repo skip** — Detects private repositories and automatically disables proxying, since mirrors can't access your token and would inevitably 404.
 
-1. 浏览器装 [Tampermonkey](https://www.tampermonkey.net/)（篡改猴）
-2. 打开 [src/github-mirror.user.js](src/github-mirror.user.js)，点「Raw」
-3. 篡改猴会弹出安装页，点「安装」
+**Bilingual UI** — English and Chinese, auto-detected from your browser language.
 
-或者：把 `.user.js` 文件直接拖进浏览器窗口。
+## Install
 
-## 使用
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser
+2. Open [src/github-mirror.user.js](src/github-mirror.user.js) and click "Raw"
+3. Tampermonkey shows an install page — click "Install"
 
-装好后打开任意 GitHub 页面，右下角出现面板。
+Or: drag the `.user.js` file directly into your browser window.
 
-**镜像列表** —— 点一下固定使用该镜像，再点取消。「自动选优」始终选择当前最快的健康镜像。
+## Usage
 
-**探活** —— 手动触发所有镜像检测。检测过程中标题栏圆点变黄，每个镜像右侧显示实测延迟或「失败」。
+Open any GitHub page and the panel appears in the bottom-right.
 
-**开关** —— 一键启停镜像加速。关闭后所有链接走原始直连。
+**Mirror list** — Click to pin a mirror, click again to unpin. "Auto (fastest)" always picks the current fastest healthy mirror.
 
-**克隆** —— 在仓库首页点击，复制带镜像前缀的 `git clone` 命令到剪贴板。
+**Probe** — Manually test all mirrors. The title-bar dot turns yellow during testing; each mirror shows measured latency or "fail".
 
-**面板** —— 拖动标题栏移动位置，点 `—` 折叠成一条。
+**On/Off** — Enable or disable mirror acceleration. When off, all links go direct.
 
-## 镜像源
+**Clone** — On a repository homepage, copies a `git clone` command prefixed with the mirror to your clipboard.
 
-当前内置 4 个，全部经过实测验证（raw 与 release 双路径）：
+**Panel** — Drag the title bar to move it, click `—` to collapse.
 
-| 镜像 | 特点 |
+### Changing the language
+
+The UI auto-detects: browsers reporting a `zh` language get Chinese, everyone else gets English.
+
+To force a language, open the browser console:
+
+```javascript
+__ghm.setLang('en')    // English
+__ghm.setLang('zh')    // 中文
+__ghm.setLang('auto')  // follow browser
+__ghm.getLang()        // check current
+```
+
+## Mirrors
+
+Four built-in mirrors, all live-tested on both raw and release paths:
+
+| Mirror | Notes |
 |---|---|
-| `gh.nxnow.top` | 最快，实测 ~1.3s |
-| `ghfast.top` | 稳定，实测 ~1.4s |
-| `gh-proxy.com` | 稳定，实测 ~2.2s |
-| `ghproxy.net` | 慢速备胎，实测 ~5.6s |
+| `gh.nxnow.top` | Fastest, ~1.3s measured |
+| `ghfast.top` | Stable, ~1.4s measured |
+| `gh-proxy.com` | Stable, ~2.2s measured |
+| `ghproxy.net` | Slow fallback, ~5.6s measured |
 
-脚本内还记录了一份 `DEAD_MIRRORS` 清单，包含 12 个已确认不可用的源及其死亡原因（停服、SSL 失败、429 限流、返回落地页等），避免以后被误加回来。
+The script also keeps a `DEAD_MIRRORS` list documenting 12 confirmed-dead sources with their cause of death (shut down, SSL failure, 429 rate limit, returns landing page, etc.) so they don't get re-added by mistake.
 
-**这些是第三方公共代理服务，随时可能挂掉。** 这也是为什么脚本要做成探活 + 自动切换，而不是写死一个。
+**These are third-party public proxy services. They can die at any time.** That's exactly why the script does health probing and automatic switching instead of hardcoding one.
 
-### 添加自己的镜像
+### Adding your own mirror
 
-编辑 `src/github-mirror.user.js` 开头的 `MIRRORS` 数组：
+Edit the `MIRRORS` array at the top of `src/github-mirror.user.js`:
 
 ```javascript
 const MIRRORS = [
-  { host: 'https://你的镜像.com', label: '显示名', pri: 1, note: '备注' },
+  { host: 'https://your-mirror.com', label: 'display name', pri: 1, note: 'note' },
   // ...
 ];
 ```
 
-同时记得在 UserScript 头的 `@connect` 里加上域名，否则 `GM_xmlhttpRequest` 会被拦截。
+Also add the domain to the UserScript header's `@connect` list, otherwise `GM_xmlhttpRequest` will be blocked.
 
-镜站的约定是 `{镜像域名}/{完整原始URL}`，例如：
+The mirror convention is `{mirror}/{full original URL}`:
 
 ```
 https://ghfast.top/https://github.com/user/repo/releases/download/v1.0/a.zip
 ```
 
-## 支持改写的链接类型
+## Supported URL types
 
-| 类型 | 例子 |
+| Type | Example |
 |---|---|
-| Release 资产 | `github.com/u/r/releases/download/v1/a.zip` |
-| 源码包 | `github.com/u/r/archive/refs/heads/main.zip` |
-| Raw 视图 | `github.com/u/r/raw/main/x.js` |
-| Raw 直链 | `raw.githubusercontent.com/u/r/main/x.js` |
+| Release assets | `github.com/u/r/releases/download/v1/a.zip` |
+| Source archives | `github.com/u/r/archive/refs/heads/main.zip` |
+| Raw view | `github.com/u/r/raw/main/x.js` |
+| Raw direct | `raw.githubusercontent.com/u/r/main/x.js` |
 | Codeload | `codeload.github.com/u/r/zip/refs/heads/main` |
-| Objects 存储 | `objects.githubusercontent.com/...` |
-| Gist 原始内容 | `gist.githubusercontent.com/...` |
+| Objects storage | `objects.githubusercontent.com/...` |
+| Gist raw | `gist.githubusercontent.com/...` |
 
-页面本身（仓库首页、issue、PR、设置页）**不改写**，因为镜像站会把 GitHub 的界面结构打碎。
+Pages themselves (repo home, issues, PRs, settings) are **not** rewritten — mirrors break GitHub's UI structure.
 
-## 二次开发
+## Development
 
-### 项目结构
+### Structure
 
 ```
 ├── src/
-│   └── github-mirror.user.js   # 主脚本，单文件无构建
+│   └── github-mirror.user.js   # main script, single file, no build step
 ├── tests/
-│   ├── verify.mjs              # 48 项逻辑断言
-│   └── e2e-probe.mjs           # 端到端镜像探活
+│   ├── verify.mjs              # 65 offline logic assertions
+│   ├── i18n-check.mjs          # 32 translation runtime checks
+│   └── e2e-probe.mjs           # end-to-end mirror probing (needs network)
 ├── LICENSE                     # MIT
-└── README.md
+├── README.md
+└── README.zh-CN.md
 ```
 
-### 运行测试
+### Running tests
 
 ```bash
-node tests/verify.mjs      # 离线逻辑验证，不需要网络
-node tests/e2e-probe.mjs   # 实际请求镜像站，需要网络
+node tests/verify.mjs      # offline logic checks, no network needed
+node tests/i18n-check.mjs  # translation table + rendering checks
+node tests/e2e-probe.mjs   # actually hits mirrors, needs network
 ```
 
-`verify.mjs` 覆盖：脚本结构、镜像表完整性、7 种 URL 类型识别、5 种不该改写的跳过、镜像拼接、健康度排序的 4 种场景、UI 组件存在性、故障转移逻辑、安全边界。
+`verify.mjs` covers: script structure, mirror table integrity, 7 URL type detections, 5 negative skip cases, mirror URL composition, 4 health-ranking scenarios, UI component presence, failover logic, i18n table parity, and security boundaries.
 
-### 关键函数
+### Key functions
 
-`toMirror(url, host)` —— 把原始 GitHub URL 包成镜像 URL。处理 `github.com/u/r/raw/ref/path` 到 `raw.githubusercontent.com/u/r/ref/path` 的转换。
+`toMirror(url, host)` — Wraps an original GitHub URL into a mirror URL. Handles the `github.com/u/r/raw/ref/path` → `raw.githubusercontent.com/u/r/ref/path` conversion.
 
-`rankedMirrors()` —— 按健康度排序镜像。自己实现优先级逻辑时主要改这里。
+`rankedMirrors()` — Sorts mirrors by health. This is where you'd change the priority logic.
 
-`probeOne(host)` —— 单个镜像探活。带内容校验，返回 `{host, ok, ms, reason}`。
+`probeOne(host)` — Single mirror health check with content validation. Returns `{host, ok, ms, reason}`.
 
-`navigateWithFailover(url)` —— 带故障转移的跳转。这是下载点击的核心路径。
+`navigateWithFailover(url)` — Failover-aware redirect. This is the core download click path.
 
-`quickCheck(url)` —— 轻量可达性检查，只取首字节。
+`quickCheck(url)` — Lightweight reachability check, first bytes only.
 
-浏览器控制台里可以通过 `window.__ghm` 访问内部状态：
+`t(key, vars)` — Translation lookup with `{placeholder}` substitution.
+
+Debug interface via `window.__ghm`:
 
 ```javascript
-__ghm.cfg           // 当前配置
-__ghm.mirrors       // 镜像表
-__ghm.dead          // 死源清单
-__ghm.probeAll()    // 手动探活
+__ghm.cfg              // current config
+__ghm.mirrors          // mirror table
+__ghm.dead             // dead mirror list
+__ghm.probeAll()       // manual health check
 __ghm.rankedMirrors()
 __ghm.toMirror('https://github.com/u/r/releases/download/v1/a.zip')
+__ghm.setLang('zh')    // switch language
 ```
 
-### 无构建
+### No build step
 
-脚本是单文件，没有打包步骤，没有依赖，没有 npm install。改完直接刷新浏览器就生效。这是刻意的——一个用户脚本不该需要工具链。
+Single file, no bundler, no dependencies, no `npm install`. Edit and refresh the browser. This is deliberate — a userscript shouldn't require a toolchain.
 
-## 许可证
+### Adding a language
+
+Add an entry to the `STRINGS` object and the language will be selectable via `__ghm.setLang()`:
+
+```javascript
+const STRINGS = {
+  en: { /* ... */ },
+  zh: { /* ... */ },
+  ja: {
+    panelTitle: 'GitHub ミラー',
+    // ... all 36 keys
+  },
+};
+```
+
+Then update `detectLang()` to map the browser locale to your new key.
+
+## License
 
 [MIT](LICENSE)
 
-允许：
-- 商业使用
-- 修改
-- 分发
-- 私人使用
-- 再许可
+You may:
+- Use commercially
+- Modify
+- Distribute
+- Use privately
+- Sublicense
 
-唯一要求：保留版权声明和许可证文本。
+The only requirement: keep the copyright notice and license text.
 
-**你可以自由 fork、改写、二次开发、闭源发布，不需要征得同意。**
+**Fork it, rewrite it, build on it, ship it closed-source — no permission needed.**
 
-## 免责声明
+## Disclaimer
 
-本脚本仅改写 URL 传输路径，不代理、不存储、不转发任何内容。所有流量仍由你选择的第三方镜像服务处理。
+This script only rewrites URL transport paths. It does not proxy, store, or forward any content. All traffic is still handled by whichever third-party mirror service you select.
 
-镜像站的可用性、速度、隐私政策均不受本项目控制。使用前请自行判断是否信任该镜像。
+Mirror availability, speed, and privacy policies are outside this project's control. Judge for yourself whether you trust a given mirror.
 
-本脚本不绕过任何访问控制，不改动任何凭据，不接触任何账号数据。
+This script does not bypass any access control, does not modify any credentials, and does not touch any account data.

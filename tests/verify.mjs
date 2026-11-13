@@ -159,6 +159,50 @@ ok('无 eval', !/\beval\s*\(/.test(code));
 ok('无 innerHTML 注入用户数据', !/innerHTML\s*=\s*[^`'"']*\$\{/.test(code) || true);
 ok('使用 const/let 非 var', !/\bvar\s+/.test(code));
 
+// --- 9. i18n ---
+console.log('\n[9] 国际化');
+const enStart = code.indexOf('    en: {');
+const zhStart = code.indexOf('    zh: {');
+const zhEnd = code.indexOf('  };', zhStart);
+ok('有 en 语言表', enStart > 0);
+ok('有 zh 语言表', zhStart > 0);
+
+const enBlock = code.slice(enStart, zhStart);
+const zhBlock = code.slice(zhStart, zhEnd);
+const keyRe = /^\s{6}([a-zA-Z]+):/gm;
+const enKeys = [...enBlock.matchAll(keyRe)].map(m => m[1]).sort();
+const zhKeys = [...zhBlock.matchAll(keyRe)].map(m => m[1]).sort();
+
+ok('en 表非空', enKeys.length > 20, enKeys.length);
+ok('zh 表与 en 表 key 数量一致', enKeys.length === zhKeys.length, `${enKeys.length} vs ${zhKeys.length}`);
+ok('两表 key 完全相同', JSON.stringify(enKeys) === JSON.stringify(zhKeys));
+
+// 所有 t() 调用都有定义（排除 createElement 误匹配）
+const calls = [...code.matchAll(/[^a-zA-Z]t\('([a-zA-Z]+)'/g)].map(m => m[1]);
+const usedKeys = [...new Set(calls)].filter(k => !['div', 'span', 'code', 'button', 'style', 'a'].includes(k));
+const undefinedKeys = usedKeys.filter(k => !enKeys.includes(k));
+ok('所有 t() key 都已定义', undefinedKeys.length === 0, undefinedKeys.join(','));
+
+// UI 硬编码中文检查：面板模板里不该有中文
+const innerHTMLBlocks = [...code.matchAll(/innerHTML\s*=\s*`([\s\S]*?)`/g)].map(m => m[1]);
+const cnInTemplate = innerHTMLBlocks.filter(b => /[\u4e00-\u9fa5]/.test(b));
+ok('面板模板无硬编码中文', cnInTemplate.length === 0, `${cnInTemplate.length} 处`);
+
+// 语言检测
+ok('有 detectLang 函数', code.includes('function detectLang'));
+ok('检测 zh 前缀', /startsWith\('zh'\)/.test(code));
+ok('默认语言 en', /DEFAULT_LANG\s*=\s*'en'/.test(code));
+ok('setLang 调试接口', code.includes('setLang'));
+ok('t() 支持占位替换', code.includes('new RegExp(\'\\\\{\' + k + \'\\\\}\')') || /replace\(new RegExp\('\\\\\{'/.test(code));
+
+// --- 10. UserScript 元数据 ---
+console.log('\n[10] 元数据');
+ok('@name 英文名', /@name\s+GitHub Mirror Accelerator/.test(code));
+ok('@name:zh-CN 中文名', /@name:zh-CN/.test(code));
+ok('@description:zh-CN', /@description:zh-CN/.test(code));
+ok('@version 4.x', /@version\s+4\.\d+\.\d+/.test(code));
+ok('@namespace 指向仓库', code.includes('XIEHUANGMOU/github-mirror-accelerator'));
+
 console.log(`\n${'='.repeat(50)}`);
 console.log(`结果: ${pass} 通过, ${fail} 失败`);
 process.exit(fail > 0 ? 1 : 0);
